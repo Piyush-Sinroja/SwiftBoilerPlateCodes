@@ -1,0 +1,19 @@
+query Rockets {
+  rockets {    
+    id
+    name
+    height {
+      meters
+      feet
+    }
+    description
+    country
+    engines {
+      number
+    }
+    mass {
+      kg
+      lb
+    }
+  }
+}

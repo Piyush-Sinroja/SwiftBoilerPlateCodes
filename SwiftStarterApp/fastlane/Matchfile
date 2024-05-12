@@ -1,0 +1,3 @@
+git_url("git@github.com:Piyush-Sinroja/Certificates_SwiftStarterApp.git")
+storage_mode("git")
+git_branch("dev")

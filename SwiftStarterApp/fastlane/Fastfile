@@ -1,0 +1,406 @@
+# This file contains the fastlane.tools configuration
+# You can find the documentation at https://docs.fastlane.tools
+#
+# For a list of all available actions, check out
+#
+#     https://docs.fastlane.tools/actions
+#
+# For a list of all available plugins, check out
+#
+#     https://docs.fastlane.tools/plugins/available-plugins
+#
+
+# Uncomment the line if you want fastlane to automatically update itself
+# update_fastlane
+
+default_platform(:ios)
+
+accountUserEmailId = ENV["DEVELOPER_APP_ID"]
+appName = ENV["APP_NAME"]
+appStoreTeamID = ENV["APP_STORE_CONNECT_TEAM_ID"]
+appStoreAuthKeyID = ENV["APP_STORE_CONNECT_AUTHKEY_ID"]
+appStoreIssuerID = ENV["APPLE_ISSUER_ID"]
+appStoreKeyFileContent = ENV["APPLE_KEY_CONTENT"]
+#Test
+
+#accountUserEmailId = "piyush.sinroja@techholding.co"
+#appName = "SwiftStarterApp"
+#appStoreTeamID = "XXXXX"
+#appStoreAuthKeyID = "XXXXX"
+#appStoreIssuerID = "XXXXX-XXXXX-XXXXX"
+#appStoreKeyFileContent = "-----BEGIN PRIVATE KEY-----
+XXXXXXX
+#-----END PRIVATE KEY-----"
+
+appStoreKeyFilePath = "./fastlane/AuthKey_#{appStoreAuthKeyID}.p8"
+accountCompanyName = "Tech Holding, LLC"
+accountTeamName = "Tech Holding, LLC"
+
+devBundleId = "com.starterapp.dev"
+stageBundleId = "com.starterapp.stage"
+prodBundleId = "com.starterapp.prod"
+
+platform :ios do
+
+  # Register new Device to Apple Developer Account
+  desc "Register new devices"
+  lane :register_new_device do
+    device_name = prompt(text: "Enter the device name: ")
+    device_udid = prompt(text: "Enter the device UDID: ")
+    device_hash = {}
+    device_hash[device_name] = device_udid
+    register_devices(devices: device_hash)
+    match(
+      type: "development",
+      app_identifier: [
+        devBundleId,
+        stageBundleId,
+        prodBundleId,
+      ],
+      force_for_new_devices: true
+    )
+  end
+  
+  desc "Install AppStore apple provisional profiles and certificates"
+  lane :sync_appstore_apple_credentials do
+    match(
+      type: "appstore",
+      app_identifier: [
+        devBundleId,
+        stageBundleId,
+        prodBundleId,
+      ],
+      readonly: true,
+      force: false,
+    )
+  end
+
+  desc "Install Dev apple provisional profiles and certificates"
+  lane :sync_dev_apple_credentials do
+    match(
+      type: "development",
+      app_identifier: [
+        devBundleId,
+        stageBundleId,
+        prodBundleId,
+      ],
+      readonly: true,
+      force: false,
+    )
+  end
+
+  desc "Upload to TestFlight Dev"
+  lane :upload_testflight_dev do
+    
+    get_profile_and_certs(
+      environment: "dev"
+    )
+
+    bundleID = get_host_app_bundle_id(
+      environment: "dev"
+    )
+
+    build_number = set_build_number(
+      bundleID: bundleID
+    )
+
+    result = build_project(
+      environment: "dev"
+    )
+    
+    send_to_testflight(
+      environment: "dev",
+      bundleID: bundleID,
+      dsym_path: result[:dsym_path],
+      ipa_path: result[:ipa_path]
+    )
+  end
+
+  desc "Upload to TestFlight stage"
+  lane :upload_testflight_stage do
+    
+    get_profile_and_certs(
+      environment: "stage"
+    )
+
+    bundleID = get_host_app_bundle_id(
+      environment: "stage"
+    )
+
+    set_build_number(
+      bundleID: bundleID
+    )
+
+    result = build_project(
+      environment: "stage"
+    )
+
+    send_to_testflight(
+      bundleID: bundleID,
+      dsym_path: result[:dsym_path],
+      ipa_path: result[:ipa_path]
+    )
+  end
+
+  desc "Upload to TestFlight Prod"
+  lane :upload_testflight_prod do
+    
+    get_profile_and_certs(
+      environment: "prod"
+    )
+
+    bundleID = get_host_app_bundle_id(
+      environment: "prod"
+    )
+
+    set_build_number(
+      bundleID: bundleID
+    )
+
+    result = build_project(
+      environment: "prod"
+    )
+
+    send_to_testflight(
+      bundleID: bundleID,
+      dsym_path: result[:dsym_path],
+      ipa_path: result[:ipa_path]
+    )
+  end
+
+  ##
+  ## Private lanes
+  ##
+
+  desc "Get Profile and Certificates"
+  private_lane :get_profile_and_certs do | options |
+    match(
+      type: "appstore",
+      keychain_name: "fastlane_tmp_keychain", # comment this for local test otherwise it's important when build from server
+      keychain_password: "",
+      app_identifier: get_bundle_ids_host_app_and_extensions(options).values,
+      readonly: true
+    )
+  end
+
+  desc "Get bundle ID's and Host app and extenstion"
+  private_lane :get_bundle_ids_host_app_and_extensions do | options |
+
+    appBundleIdentifier = get_host_app_bundle_id(options)
+
+    bundleIdentifiers = {app: appBundleIdentifier}  
+    
+    bundleIdentifiers
+  end
+
+  desc "Get host application bundle ID"
+  private_lane :get_host_app_bundle_id do | options |
+    
+    case options[:environment]
+    when "dev"
+       envString = ".dev"
+    when "stage"
+       envString = ".stage"
+    when "prod"
+       envString = ".prod"
+    else
+       envString = ".dev"
+    end
+
+    bundleIdentifier = "com.starterapp#{envString}"
+
+    bundleIdentifier
+  end
+
+  desc "Set TestFlight build number"
+  private_lane :set_build_number do | options |
+    
+    fetched_build_number = get_testflight_build_number(      
+      bundleID:options[:bundleID],
+      china:options[:china]
+    )
+    
+    fetched_build_number = fetched_build_number + 1
+
+    incremented_build = increment_build_number(
+      build_number: fetched_build_number
+    )
+    
+    incremented_build
+  end
+
+  desc "Get latest TestFlight build number"
+  private_lane :get_testflight_build_number do | options |
+    api_key = app_store_connect_api_key(
+      key_id: appStoreAuthKeyID,
+      issuer_id: appStoreIssuerID,
+      #key_filepath: appStoreKeyFilePath,
+      key_content: appStoreKeyFileContent,
+      duration: 1200, # optional
+      in_house: false, # optional but may be required if using match/sigh
+    )
+
+    version_number = get_version_number(xcodeproj: "#{appName}.xcodeproj", target: "#{appName}")
+    bundle_identifier = options[:bundleID]
+
+    fetched_build_number = latest_testflight_build_number(
+      api_key: api_key,
+      app_identifier:options[:bundleID],
+      version:version_number,
+      initial_build_number:0
+    )      
+
+    fetched_build_number
+  end
+
+  desc "send to test flight"
+  private_lane :send_to_testflight do | options |
+    # if options[:de]
+    #   groupsForTestFlight = ["International", "Company name"]
+    # else
+    # end
+
+    case options[:environment]
+    when "dev"
+      skipWaitingForProcessing = true
+      distributeExternal = false
+      notifyExternal = false
+      groupsForTestFlight = ["External"]
+    when "stage"
+      skipWaitingForProcessing = true
+      distributeExternal = false
+      notifyExternal = false
+      groupsForTestFlight = [""]
+    when "prod"
+      skipWaitingForProcessing = true
+      distributeExternal = false
+      notifyExternal = false
+      groupsForTestFlight = ["External"]
+    else
+      skipWaitingForProcessing = true
+      distributeExternal = false
+      notifyExternal = false
+      groupsForTestFlight = ["External"]
+    end
+
+    # extracted_msg = extractCommitMessageFromCommitMessage(commit_msg)
+    # commit_changelog = createChangeLogMessage(commit_title,extracted_msg,commit_performer)
+
+    app_store_connect_api_key(
+      key_id: appStoreAuthKeyID,
+      issuer_id: appStoreIssuerID,
+      #key_filepath: appStoreKeyFilePath,
+      key_content: appStoreKeyFileContent,
+      duration: 1200, # optional
+      in_house: false, # optional but may be required if using match/sigh
+    )
+
+    upload_to_testflight(
+      beta_app_review_info: {
+        contact_email: accountUserEmailId,
+        contact_first_name: "Piyush",
+        contact_last_name: "Sinroja",
+        contact_phone: "+918488882842",
+        demo_account_name: "",
+        demo_account_password: ""
+      },
+      ipa:options[:ipa_path],
+      beta_app_description: "SwiftStarterApp application, gives you functionality to enhance your work with your team members. You can join sports.",
+      beta_app_feedback_email: accountUserEmailId,
+      app_identifier: options[:bundleID],
+      distribute_external: distributeExternal,
+      # groups: groupsForTestFlight,
+      notify_external_testers: notifyExternal,
+      reject_build_waiting_for_review: true,
+      # changelog: commit_changelog,
+      skip_waiting_for_build_processing: skipWaitingForProcessing,
+      wait_processing_timeout_duration: 2700  # optional we need to update the fastlane to execute this code
+    )
+  end
+
+  desc "Build project"
+  private_lane :build_project do | options |
+    
+    schemaName = get_schema(options)
+    # generate_swiftgen_files()
+
+    build_app(
+      clean: true,
+      export_method:"app-store",
+      export_team_id: appStoreTeamID,
+      include_symbols:true,
+      scheme: schemaName,
+      workspace: "#{appName}.xcworkspace",
+      output_name: "#{appName}-export"
+    )
+
+    {ipa_path: lane_context[SharedValues::IPA_OUTPUT_PATH], dsym_path:lane_context[SharedValues::DSYM_OUTPUT_PATH]}  
+  end
+
+  desc "Get Schema details"
+  private_lane :get_schema do | options |
+    
+    case options[:environment]
+    when "dev"
+      schemaName = "#{appName}-Dev"
+    when "stage"
+       schemaName = "#{appName}-Stage"
+    when "prod"
+       schemaName = "#{appName}-Prod"
+    else
+       schemaName = "#{appName}-Dev"
+    end
+
+    schemaName
+  end
+
+  ##
+  ## Register new application
+  ##
+
+  # Register new development application to apple developer account
+  desc "Register new dev application"
+  private_lane :register_new_dev_application do
+    produce(
+      username: accountUserEmailId,
+      app_identifier: devBundleId,
+      app_name: "#{appName} Dev",
+      language: 'en-US',
+      app_version: '1.0',
+      sku: devBundleId,
+      company_name: accountCompanyName,
+      team_name: accountTeamName, # only necessary when in multiple teams
+    )
+  end
+
+  # Register new stage application to apple developer account
+  desc "Register new stage application"
+  private_lane :register_new_stage_application do
+    produce(
+      username: accountUserEmailId,
+      app_identifier: stageBundleId,
+      app_name: "#{appName} Stage",
+      language: 'en-US',
+      app_version: '1.0',
+      sku: stageBundleId,
+      company_name: accountCompanyName,
+      team_name: accountTeamName, # only necessary when in multiple teams
+    )
+  end
+
+ # Register new prod application to apple developer account
+  desc "Register new prod application"
+  private_lane :register_new_prod_application do
+    produce(
+      username: accountUserEmailId,
+      app_identifier: prodBundleId,
+      app_name: "#{appName} Pro",
+      language: 'en-US',
+      app_version: '1.0',
+      sku: prodBundleId,
+      company_name: accountCompanyName,
+      team_name: accountTeamName, # only necessary when in multiple teams
+    )
+  end
+
+end

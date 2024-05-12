@@ -1,0 +1,86 @@
+name: Upload From fastlane_git_action_workflow to Testflight
+
+on:
+  push:
+    branches:
+      #- feat/fastlane_git_action_workflow
+      - dev
+    workflow_dispatch:
+
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    name: Development Build
+    # Set the type of machine to run on
+    runs-on: macos-latest
+    environment: dev
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # - name: Select Xcode version
+      #   run: sudo xcode-select -s '/Applications/Xcode_14.2.app/Contents/Developer'
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest
+      #- name: Cache Gem
+      #  id: cache-gem
+      #  uses: actions/cache@v3
+      #  with:
+      #    path: SwiftStarterApp/
+      #    key: ${{ runner.os }}-cache-gem-${{ hashFiles('**/Gemfile.lock') }}
+      #    restore-keys: |
+      #      ${{ runner.os }}-cache-gem-
+
+      - name: Install Gemfile
+        working-directory: SwiftStarterApp/
+        if: ${{ steps.cache-gem.outputs.cache-hit != 'true' }}
+        run: bundle install
+
+      - name: Cache Pods
+        id: cache-pods
+        uses: actions/cache@v3
+        with:
+          path: SwiftStarterApp/Pods
+          key: ${{ runner.os }}-cache-pods-${{ hashFiles('**/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cache-pods-
+
+      - name: Install Cocoa Pods
+        working-directory: SwiftStarterApp/
+        if: ${{ steps.cache-pods.outputs.cache-hit != 'true' }}
+        run: pod install
+
+      - uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - uses: actions/cache@v3
+        with:
+          path: .build
+          key: ${{ runner.os }}-cache-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-cache-spm-
+
+      - name: Run fastlane setup
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+        run: fastlane run setup_ci
+
+      - name: Run fastlane beta Dev distribution for TestFlight
+        working-directory: SwiftStarterApp/
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.GIT_BASIC_AUTHORIZATION }}
+          DEVELOPER_APP_ID: ${{ secrets.DEVELOPER_APP_ID }}
+          APP_NAME: ${{ secrets.APP_NAME }}
+          APP_STORE_CONNECT_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
+          APP_STORE_CONNECT_AUTHKEY_ID: ${{ secrets.APP_STORE_CONNECT_AUTHKEY_ID }}
+          APP_STORE_CONNECT_ITC_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_ITC_TEAM_ID }}
+          APPLE_ISSUER_ID: ${{ secrets.APPLE_ISSUER_ID }}
+          APPLE_KEY_CONTENT: ${{ secrets.APPLE_KEY_CONTENT }}
+        run: fastlane upload_testflight_dev
